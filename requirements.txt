@@ -1,7 +1,9 @@
 fastapi
 uvicorn
-pydantic 
+pydantic
 python-jose
-passlib[bcrypt] 
-cloudinary 
+passlib[bcrypt]
+cloudinary
 python-dotenv
+starlette
+requests
