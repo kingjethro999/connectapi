@@ -7,3 +7,4 @@ cloudinary
 python-dotenv
 starlette
 requests
+python-multipart
