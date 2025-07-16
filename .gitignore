@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Node/React Native
+node_modules/
+.expo/
+.expo-shared/ 
