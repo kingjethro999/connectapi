@@ -4,3 +4,4 @@ pydantic
 python-jose
 passlib[bcrypt] 
 cloudinary 
+python-dotenv
