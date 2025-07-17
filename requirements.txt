@@ -7,5 +7,5 @@ cloudinary
 python-dotenv
 starlette
 requests
-# The following are part of the Python standard library and do not need to be installed:
-# json, os, random, datetime, smtplib, email
+python-multipart
+pymongo[srv]
