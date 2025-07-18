@@ -47,42 +47,27 @@ MONGO_URI = os.getenv("MONGO_URI") or "mongodb+srv://kingjethrojerry:seun2009@cl
 client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
 db = client[os.getenv("MONGO_DB", "connectdb")]  # database name
 
-# --- MIGRATION FROM data.json (one-time) ---
-DATA_FILE = 'data.json'
+# --- ADMIN USER CONSTANTS ---
 ADMIN_EMAIL = "jethrojerrybj@gmail.com"
 ADMIN_PASSWORD = "seun2009"
 ADMIN_PROFILE_PIC = "https://res.cloudinary.com/dcrh78d8z/image/upload/v1749708860/ignite_zzafoh.png"
 
-# Remove data.json migration logic and only ensure admin user on startup
+# --- STARTUP: ENSURE ADMIN USER EXISTS ---
 @app.on_event("startup")
-async def reset_db_and_create_admin_once():
-    # Only reset if RESET_DB_ONCE env var is set
-    if os.getenv("RESET_DB_ONCE") == "1":
-        db.users.delete_many({})
-        db.chats.delete_many({})
-        db.stories.delete_many({})
-        db.settings.delete_many({})
-        print("Database wiped! Inserting only admin user.")
-        db.users.insert_one({
-            "id": 1,
-            "username": ADMIN_EMAIL.split('@')[0],
-            "email": ADMIN_EMAIL,
-            "password_hash": pwd_context.hash(ADMIN_PASSWORD),
-            "role": "admin",
-            "profile_pic": ADMIN_PROFILE_PIC,
-            "add_up_requests": [],
-            "added_ups": [],
-            "google_id": None,
-            "github_id": None,
-            "facebook_id": None
-        })
-        print("Created default admin in MongoDB!")
-        # Optionally, unset the env var or create a marker file to prevent future wipes
-    else:
-        # Only ensure admin exists
-        if not db.users.find_one({"username": ADMIN_EMAIL}):
-            db.users.insert_one({
-                "id": 1,
+async def ensure_admin_user():
+    """Ensure admin user exists in the database on startup"""
+    try:
+        # Check if admin user already exists
+        admin_exists = db.users.find_one({"email": ADMIN_EMAIL})
+        
+        if not admin_exists:
+            # Get next available user ID
+            last_user = db.users.find_one(sort=[("id", -1)])
+            next_id = (last_user["id"] + 1) if last_user else 1
+            
+            # Create admin user
+            admin_user = {
+                "id": next_id,
                 "username": ADMIN_EMAIL.split('@')[0],
                 "email": ADMIN_EMAIL,
                 "password_hash": pwd_context.hash(ADMIN_PASSWORD),
@@ -93,8 +78,15 @@ async def reset_db_and_create_admin_once():
                 "google_id": None,
                 "github_id": None,
                 "facebook_id": None
-            })
-            print("Created default admin in MongoDB!")
+            }
+            
+            db.users.insert_one(admin_user)
+            print(f"✅ Admin user created successfully with ID: {next_id}")
+        else:
+            print(f"✅ Admin user already exists with ID: {admin_exists['id']}")
+            
+    except Exception as e:
+        print(f"❌ Error creating admin user: {str(e)}")
 
 # --- UTILS ---
 def get_user_by_username_or_email(identifier: str):
@@ -504,7 +496,11 @@ def register(data: RegisterModel):
         raise HTTPException(status_code=400, detail='Username already registered')
     if db.users.find_one({"email": data.email}):
         raise HTTPException(status_code=400, detail='Email already registered')
-    user_id = int(uuid4())
+    
+    # Get next available user ID
+    last_user = db.users.find_one(sort=[("id", -1)])
+    user_id = (last_user["id"] + 1) if last_user else 1
+    
     user = {
         'id': user_id,
         'username': data.username,
