@@ -53,26 +53,37 @@ ADMIN_EMAIL = "jethrojerrybj@gmail.com"
 ADMIN_PASSWORD = "seun2009"
 ADMIN_PROFILE_PIC = "https://res.cloudinary.com/dcrh78d8z/image/upload/v1749708860/ignite_zzafoh.png"
 
+# Remove data.json migration logic and only ensure admin user on startup
 @app.on_event("startup")
-async def migrate_data_if_needed():
-    # Check if admin exists
-    if not db.users.find_one({"username": ADMIN_EMAIL}):
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            # Insert all collections
-            for coll in ["users", "chats", "stories", "settings"]:
-                if coll in data:
-                    if isinstance(data[coll], dict):
-                        db[coll].insert_one(data[coll])
-                    elif isinstance(data[coll], list):
-                        if data[coll]:
-                            db[coll].insert_many(data[coll])
-            print("Migrated data.json to MongoDB!")
-        else:
-            # Create admin if not present and no data.json
+async def reset_db_and_create_admin_once():
+    # Only reset if RESET_DB_ONCE env var is set
+    if os.getenv("RESET_DB_ONCE") == "1":
+        db.users.delete_many({})
+        db.chats.delete_many({})
+        db.stories.delete_many({})
+        db.settings.delete_many({})
+        print("Database wiped! Inserting only admin user.")
+        db.users.insert_one({
+            "id": 1,
+            "username": ADMIN_EMAIL.split('@')[0],
+            "email": ADMIN_EMAIL,
+            "password_hash": pwd_context.hash(ADMIN_PASSWORD),
+            "role": "admin",
+            "profile_pic": ADMIN_PROFILE_PIC,
+            "add_up_requests": [],
+            "added_ups": [],
+            "google_id": None,
+            "github_id": None,
+            "facebook_id": None
+        })
+        print("Created default admin in MongoDB!")
+        # Optionally, unset the env var or create a marker file to prevent future wipes
+    else:
+        # Only ensure admin exists
+        if not db.users.find_one({"username": ADMIN_EMAIL}):
             db.users.insert_one({
-                "username": ADMIN_EMAIL,
+                "id": 1,
+                "username": ADMIN_EMAIL.split('@')[0],
                 "email": ADMIN_EMAIL,
                 "password_hash": pwd_context.hash(ADMIN_PASSWORD),
                 "role": "admin",
@@ -587,7 +598,7 @@ def get_chats(token: str = Depends(oauth2_scheme)):
     user = validate_ws_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
-    return list(db.chats.find({"type": "group"})) + list(db.chats.find({"type": "direct"}))
+    return fix_ids(list(db.chats.find({"type": "group"})) + list(db.chats.find({"type": "direct"})))
 @app.get('/users')
 def get_users(search: str = "", token: str = Depends(oauth2_scheme)):
     user = validate_ws_token(token)
@@ -595,19 +606,24 @@ def get_users(search: str = "", token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
     if search:
         # Case-insensitive search on username or email
-        return list(db.users.find({
+        return fix_ids(list(db.users.find({
             "$or": [
                 {"username": {"$regex": search, "$options": "i"}},
                 {"email": {"$regex": search, "$options": "i"}}
             ]
-        }))
-    return list(db.users.find({}))
+        })))
+    return fix_ids(list(db.users.find({})))
 @app.get('/stories')
 def get_stories(token: str = Depends(oauth2_scheme)):
     user = validate_ws_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
-    return list(db.stories.find({}))
+    return fix_ids(list(db.stories.find({})))
+
+@app.get('/search/users')
+def search_users(search: str = "", token: str = Depends(oauth2_scheme)):
+    # Proxy to /users?search= for frontend compatibility
+    return get_users(search, token)
 
 async def cleanup_expired_stories():
     while True:

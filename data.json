@@ -25,15 +25,6 @@
       "facebook_id": null,
       "add_up_requests": [],
       "added_ups": []
-    },
-    {
-      "id": 3,
-      "username": "jethrojerrybj@gmail.com",
-      "password_hash": "$2b$12$tCViLEDmvjQsNSFlVDE1OOedQ2LhSuF75NjGATDXqP.r/fkB3tT4C",
-      "role": "admin",
-      "profile_pic": "https://res.cloudinary.com/dcrh78d8z/image/upload/v1749708860/ignite_zzafoh.png",
-      "add_up_requests": [],
-      "added_ups": []
     }
   ],
   "chats": [
