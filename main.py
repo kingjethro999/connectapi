@@ -74,10 +74,7 @@ async def ensure_admin_user():
                 "role": "admin",
                 "profile_pic": ADMIN_PROFILE_PIC,
                 "add_up_requests": [],
-                "added_ups": [],
-                "google_id": None,
-                "github_id": None,
-                "facebook_id": None
+                "added_ups": []
             }
             
             db.users.insert_one(admin_user)
@@ -509,10 +506,7 @@ def register(data: RegisterModel):
         'role': 'user',
         'profile_pic': data.profile_pic or "",
         'add_up_requests': [],
-        'added_ups': [],
-        'google_id': None,
-        'github_id': None,
-        'facebook_id': None
+        'added_ups': []
     }
     db.users.insert_one(user)
     access_token = create_access_token(data={"sub": user['username']})
@@ -630,6 +624,8 @@ async def cleanup_expired_stories():
 @app.on_event("startup")
 async def start_story_cleanup_task():
     asyncio.create_task(cleanup_expired_stories())
+
+
 
 def fix_ids(doc):
     if isinstance(doc, list):
