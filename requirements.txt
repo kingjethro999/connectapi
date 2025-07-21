@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 python-jose
 passlib[bcrypt]
@@ -9,3 +9,4 @@ starlette
 requests
 python-multipart
 pymongo[srv]
+websockets
