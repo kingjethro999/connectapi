@@ -485,6 +485,7 @@ class LoginResponse(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    email: str
     role: str
     profile_pic: str
 @app.post('/auth/register', response_model=LoginResponse)
@@ -544,6 +545,7 @@ def get_my_profile(token: str = Depends(oauth2_scheme)):
     return {
         "id": user['id'],
         "username": user['username'],
+        "email": user['email'],
         "role": user['role'],
         "profile_pic": user.get('profile_pic', '')
     }
