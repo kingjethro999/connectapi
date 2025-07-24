@@ -18,6 +18,7 @@ import json
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from bson import ObjectId
+import httpx
 
 # --- CONFIG ---
 load_dotenv()
@@ -652,5 +653,22 @@ def root():
 @app.get("/index.html")
 def read_index():
     return FileResponse("index.html")
+
+@app.get("/keep-alive")
+async def keep_alive():
+    return {"status": "ok"}
+
+async def keep_server_awake():
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.get("https://connectapi-y7ad.onrender.com/keep-alive")
+        except Exception as e:
+            print("Keep-alive ping failed:", e)
+        await asyncio.sleep(5.5)  # 1 minute
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(keep_server_awake())
 
 # --- END ---
