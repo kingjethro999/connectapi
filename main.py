@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Form, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Form, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -342,6 +342,8 @@ async def websocket_realtime(websocket: WebSocket):
             elif message_type == "create_story":
                 text = data.get("text", "")
                 media_url = data.get("media_url", "")
+                text_color = data.get("text_color")
+                bg_color = data.get("bg_color")
                 if not text and not media_url:
                     await websocket.send_json({"type": "error", "message": "Story must have text or media"})
                     continue
@@ -354,13 +356,23 @@ async def websocket_realtime(websocket: WebSocket):
                     'media_url': media_url,
                     'created_at': datetime.now(timezone.utc).isoformat()
                 }
+                if text and text_color:
+                    story['text_color'] = text_color
+                if text and bg_color:
+                    story['bg_color'] = bg_color
                 db.stories.insert_one(story)
-                for uid in list(manager.user_connections.keys()):
-                    if uid != user_id:
-                        await manager.broadcast_to_user(uid, {
-                            "type": "new_story",
-                            "story": story
-                        })
+                # Broadcast only to mutuals
+                my_added_ups = set(user.get('added_ups', []))
+                mutuals = set()
+                for uid in my_added_ups:
+                    u = get_user_by_id(uid)
+                    if u and user_id in u.get('added_ups', []):
+                        mutuals.add(uid)
+                for uid in mutuals:
+                    await manager.broadcast_to_user(uid, {
+                        "type": "new_story",
+                        "story": story
+                    })
                 await websocket.send_json({
                     "type": "story_created",
                     "story": story
@@ -586,6 +598,68 @@ def upload_story_media(file: UploadFile = File(...), token: str = Depends(oauth2
         return {"media_url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+@app.post('/stories/like')
+def like_story(story_id: str = Body(...), token: str = Depends(oauth2_scheme)):
+    user = validate_ws_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    story = db.stories.find_one({'id': story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    likes = set(story.get('likes', []))
+    dislikes = set(story.get('dislikes', []))
+    likes.add(user['id'])
+    dislikes.discard(user['id'])
+    db.stories.update_one({'id': story_id}, {'$set': {'likes': list(likes), 'dislikes': list(dislikes)}})
+    # Real-time broadcast to mutuals
+    story_user = get_user_by_id(story['user_id'])
+    my_id = user['id']
+    my_added_ups = set(user.get('added_ups', []))
+    mutuals = set()
+    for uid in my_added_ups:
+        u = get_user_by_id(uid)
+        if u and my_id in u.get('added_ups', []):
+            mutuals.add(uid)
+    for uid in mutuals:
+        asyncio.create_task(manager.broadcast_to_user(uid, {
+            "type": "story_like_update",
+            "story_id": story_id,
+            "likes": len(likes),
+            "dislikes": len(dislikes)
+        }))
+    return {"likes": len(likes), "dislikes": len(dislikes)}
+
+@app.post('/stories/dislike')
+def dislike_story(story_id: str = Body(...), token: str = Depends(oauth2_scheme)):
+    user = validate_ws_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    story = db.stories.find_one({'id': story_id})
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    likes = set(story.get('likes', []))
+    dislikes = set(story.get('dislikes', []))
+    dislikes.add(user['id'])
+    likes.discard(user['id'])
+    db.stories.update_one({'id': story_id}, {'$set': {'likes': list(likes), 'dislikes': list(dislikes)}})
+    # Real-time broadcast to mutuals
+    story_user = get_user_by_id(story['user_id'])
+    my_id = user['id']
+    my_added_ups = set(user.get('added_ups', []))
+    mutuals = set()
+    for uid in my_added_ups:
+        u = get_user_by_id(uid)
+        if u and my_id in u.get('added_ups', []):
+            mutuals.add(uid)
+    for uid in mutuals:
+        asyncio.create_task(manager.broadcast_to_user(uid, {
+            "type": "story_like_update",
+            "story_id": story_id,
+            "likes": len(likes),
+            "dislikes": len(dislikes)
+        }))
+    return {"likes": len(likes), "dislikes": len(dislikes)}
+
 @app.get('/chats')
 def get_chats(token: str = Depends(oauth2_scheme)):
     user = validate_ws_token(token)
@@ -611,7 +685,25 @@ def get_stories(token: str = Depends(oauth2_scheme)):
     user = validate_ws_token(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid token")
-    return fix_ids(list(db.stories.find({})))
+    my_id = user['id']
+    my_added_ups = set(user.get('added_ups', []))
+    # Find mutuals: users who have added me and I have added them
+    mutuals = set()
+    for uid in my_added_ups:
+        u = get_user_by_id(uid)
+        if u and my_id in u.get('added_ups', []):
+            mutuals.add(uid)
+    # Only show stories from myself and mutuals
+    stories = list(db.stories.find({
+        '$or': [
+            {'user_id': my_id},
+            {'user_id': {'$in': list(mutuals)}}
+        ]
+    }))
+    for s in stories:
+        s['likes'] = len(s.get('likes', []))
+        s['dislikes'] = len(s.get('dislikes', []))
+    return fix_ids(stories)
 
 @app.get('/search/users')
 def search_users(search: str = "", token: str = Depends(oauth2_scheme)):
